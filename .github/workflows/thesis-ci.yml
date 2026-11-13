@@ -1,0 +1,72 @@
+# Thesis CI (MLM extension, fork 667061/jjodel-frontend).
+# Runs upstream's quality gates on the integration branch `mlm`, feature
+# branches `mlm-*` and pull requests into `mlm`: typecheck, unit tests, build.
+# No deploy, no secrets. Upstream's workflows are left untouched.
+
+name: Thesis CI
+
+on:
+  push:
+    branches:
+      - mlm
+      - 'mlm-*'
+  pull_request:
+    branches:
+      - mlm
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thesis-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    env:
+      # vite build runs out of memory at Node 22's default heap (~2 GB).
+      NODE_OPTIONS: --max-old-space-size=6144
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js (.nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (must report 0 errors)
+        run: npm run typecheck
+
+      - name: Install Playwright Chromium (layout tests)
+        # @playwright/test is already a devDependency; this only fetches its browser.
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Unit tests (src only)
+        # Runs src/**; upstream's scripts/** tooling tests are out of scope.
+        # Excluded: the nine files that fail at import (window is not defined,
+        # via monaco-editor), listed in CLAUDE.md §17. Any other failure is red.
+        run: >-
+          npx vitest run src/
+          --exclude 'src/jjscript/__tests__/context-binding.test.ts'
+          --exclude 'src/jjtl/__tests__/abstract-target.test.ts'
+          --exclude 'src/jjtl/__tests__/ai-prompt-sanitization.test.ts'
+          --exclude 'src/jjtl/__tests__/circular-refs.test.ts'
+          --exclude 'src/jjtl/__tests__/executor-bridge.test.ts'
+          --exclude 'src/jjtl/__tests__/executor-llayer.test.ts'
+          --exclude 'src/jjtl/__tests__/forall-mapping.test.ts'
+          --exclude 'src/jjtl/__tests__/source-alias.test.ts'
+          --exclude 'src/utils/__tests__/UDComparator.test.ts'
+
+      - name: Build
+        run: npm run build
