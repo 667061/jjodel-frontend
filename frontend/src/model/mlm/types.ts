@@ -36,4 +36,8 @@ export interface DeepModel {
   readonly languageVersion: number;
   readonly elements: ReadonlyMap<Id, DeepElement>;
   readonly order: readonly Id[];             // stable read order (for deterministic output)
+  /** Enumerations of the deep model by id (E1 DEnumerators, listed in some Model's ownedEnumerations), so that
+   *  their names are known even when no attribute uses them. Optional, additive to architecture §4.1
+   *  (Elias, 2026-11-20, S1 Task 5). */
+  readonly enumerations?: ReadonlyMap<Id, DataTypeRef>;
 }

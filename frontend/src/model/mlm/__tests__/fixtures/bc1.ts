@@ -135,7 +135,8 @@ export function bc1(opts: Opts = {}): DeepModel {
             elements.set(x.id, a);
         }
     }
-    return { modelId: 'Pointer_bc1_m1', languageVersion: 1, elements, order: kept.map((x) => x.id) };
+    return { modelId: 'Pointer_bc1_m1', languageVersion: 1, elements, order: kept.map((x) => x.id),
+        enumerations: new Map([[FRAME_MATERIAL.id, FRAME_MATERIAL]]) };
 }
 
 /** Deep copy (structuredClone), apply the edit to the copy's elements, return the copy. The shared fixture is never touched. */
