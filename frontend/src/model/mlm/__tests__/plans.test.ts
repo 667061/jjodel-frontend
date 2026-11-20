@@ -51,6 +51,16 @@ describe('planAddEnumeration', () => {
     it('accepts a new enumeration', () => { const t = bc1({ onlyTop: true }); expect(planAddEnumeration(t, buildIndex(t), { levelId: id('O0'), name: 'Colour', literals: ['red', 'blue'] }).ok).toBe(true); });
 });
 
+describe('blank names (review fix #3)', () => {
+    it('every planner refuses a name made only of spaces', () => {
+        const t = bc1({ onlyTop: true }), tx = buildIndex(t);
+        expect(planAddLevel(t, tx, { typeModelId: id('O0'), name: ' ' }).ok).toBe(false);
+        expect(planAddAttribute(bc1(), buildIndex(bc1()), { ownerId: id('O2/RocketA1XL'), name: '  ', dataType: PRIM.EDouble }).ok).toBe(false);
+        expect(planAddEnumeration(t, tx, { levelId: id('O0'), name: '  ', literals: ['red'] }).ok).toBe(false);
+        expect(planAddEnumeration(t, tx, { levelId: id('O0'), name: 'Colour', literals: [' '] }).ok).toBe(false);
+    });
+});
+
 describe('planDelete', () => {
     it('FR-5.3 deleting RacingFrame cascades to two instances and their fields', () => {
         const p = planDelete(bc1(), buildIndex(bc1()), [id('O1/RacingFrame')]) as DeletePlan;

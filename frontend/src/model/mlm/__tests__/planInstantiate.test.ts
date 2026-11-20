@@ -54,6 +54,21 @@ describe('planInstantiate', () => {
     });
     it('needs list metaclasses and free names', () => expect((planInstantiate(base, ix, { typeId: id('O2/RocketA1XL'), targetModelId: id('O3'), name: 'F4' }) as InstantiatePlan).needs)
         .toMatchObject({ metaclasses: ['Clabject', 'Attribute'], freeNames: [{ containerId: id('O3'), names: ['F4'] }] }));
+    // Review fix #1: instOf goes through supers* (spec §3.0), so the types of a type's supers count for R-INST-3.
+    it('R-INST-3: fields of a super\'s type are planned', () => {
+        const m = mutate(base, (e) => {
+            e.set('O0/Bicycle/wheelSize', { id: 'O0/Bicycle/wheelSize', cls: 'Attribute', name: 'wheelSize', pot: { start: 2, end: 2, depth: 1 }, types: [], container: id('O0/Bicycle'),
+                dataType: { kind: 'primitive', id: PRIM.EDouble, name: 'EDouble' }, value: null });
+            e.get(id('O0/Bicycle')).features.push('O0/Bicycle/wheelSize');
+            e.set('O1/Other', { id: 'O1/Other', cls: 'Clabject', name: 'Other', pot: { start: 1, end: 1, depth: 2 }, types: [id('O0/Bicycle')], container: id('O1'),
+                isAbstract: null, isMultiType: null, supers: [], features: [] });
+            e.get(id('O1')).elements.push('O1/Other');
+            e.get(id('O1/RacingFrame')).supers = ['O1/Other'];
+        });
+        expect(fieldsOf(planInstantiate(m, buildIndex(m), { typeId: id('O1/RacingFrame'), targetModelId: id('O2'), name: 'FM' })))
+            .toContainEqual(['wheelSize', 'O0/Bicycle/wheelSize', '1-1-0', PRIM.EDouble]);
+    });
+    it('refuses a name made only of spaces', () => expect(planInstantiate(base, ix, { typeId: id('O2/RocketA1XL'), targetModelId: id('O3'), name: '  ' }).ok).toBe(false));
     // The shared fixture is untouched by the in-place push above (brief correction 2).
     it('mutate does not leak into the shared fixture', () => expect(base.elements.get(id('O2/RocketA1XL'))!.types).toEqual([id('O1/RacingFrame')]));
 });

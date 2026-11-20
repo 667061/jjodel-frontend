@@ -4,7 +4,7 @@
  * makes the operation impossible or nonsensical; everything else is the checker's job (0002 choice 4).
  */
 import type { DeepIndex } from './deepIndex';
-import { featsStar, instancesTransitive, orderedIds, typeClosure } from './deepIndex';
+import { featsStar, instancesTransitive, orderedIds, supersStar, typeClosure } from './deepIndex';
 import { levelOf } from './levels';
 import { effectivePotency, instancePotency } from './potency';
 import type { DeepModel, Id, MlmClass, Potency, StoredPotency } from './types';
@@ -52,12 +52,17 @@ export function planInstantiate(m: DeepModel, ix: DeepIndex, req: { typeId: Id; 
     const ok = checkInstantiable(m, ix, req.typeId, req.targetModelId);
     if (!ok.ok) return refuse(ok.rule, ok.message);
     const target = m.elements.get(req.targetModelId)!;
-    if (req.name === '') return refuse('R-INST-2', `A new clabject needs a name (R-INST-2)`);
+    if (req.name.trim() === '') return refuse('R-INST-2', `A new clabject needs a name (R-INST-2)`);
     if (namesIn(m, req.targetModelId).includes(req.name)) return refuse('R-INST-2', `'${target.name}' already has an element named '${req.name}' (R-INST-2)`);
 
-    // The new instance y: its own type at distance k, then that type's closure at k + its distance.
-    const closure = [{ type: req.typeId, distance: ok.distance },
-        ...typeClosure(m, ix, req.typeId).map((c) => ({ type: c.type, distance: c.distance + ok.distance }))];
+    // The new instance y is typedBy every s in supers*(t) at distance k (spec §3.0), and through each such s
+    // an instance of s's own closure at k + its distance. First occurrence of a type wins.
+    const closure: { type: Id; distance: number }[] = [];
+    const seenT = new Set<Id>();
+    const addT = (type: Id, distance: number) => { if (!seenT.has(type)) { seenT.add(type); closure.push({ type, distance }); } };
+    const supers = supersStar(m, req.typeId);
+    for (const s of supers) addT(s, ok.distance);
+    for (const s of supers) for (const c of typeClosure(m, ix, s)) addT(c.type, c.distance + ok.distance);
     const fields: PlannedField[] = [];
     const seenF = new Set<Id>();
     for (const { type: a, distance: k } of closure) {
@@ -109,7 +114,7 @@ export function planAddLevel(m: DeepModel, ix: DeepIndex, req: { typeModelId: Id
     const taken = new Set([...m.elements.values()].filter((e) => e.cls === 'Model').map((e) => e.name));
     let name = req.name;
     if (name === undefined) { name = `O${level}`; for (let i = 2; taken.has(name); i++) name = `O${level}_${i}`; }
-    if (name === '') return refuse('R-INST-6', `A new level needs a name (R-INST-6)`);
+    if (name.trim() === '') return refuse('R-INST-6', `A new level needs a name (R-INST-6)`);
     if (taken.has(name)) return refuse('R-INST-6', `A level named '${name}' already exists (R-INST-6)`);
     return {
         ok: true, kind: 'addLevel', typeModelId: t.id, name, level, pot: pot ? instancePotency(pot) : null,
@@ -121,7 +126,7 @@ export function planAddLevel(m: DeepModel, ix: DeepIndex, req: { typeModelId: Id
 export function planAddAttribute(m: DeepModel, _ix: DeepIndex, req: { ownerId: Id; name: string; dataType: Id; pot?: StoredPotency }): AddAttributePlan | Refusal {
     const owner = m.elements.get(req.ownerId);
     if (!owner || owner.cls !== 'Clabject') return refuse('R-INST-5', `'${owner?.name ?? req.ownerId}' is not a clabject (R-INST-5)`);
-    if (req.name === '') return refuse('R-INST-5', `A new attribute needs a name (R-INST-5)`);
+    if (req.name.trim() === '') return refuse('R-INST-5', `A new attribute needs a name (R-INST-5)`);
     if (req.dataType === '') return refuse('R-FEAT-2', `A new attribute needs a data type (R-FEAT-2)`);
     return {
         ok: true, kind: 'addAttribute', ownerId: owner.id, name: req.name, dataType: req.dataType,
@@ -134,11 +139,11 @@ export function planAddAttribute(m: DeepModel, _ix: DeepIndex, req: { ownerId: I
 export function planAddEnumeration(m: DeepModel, _ix: DeepIndex, req: { levelId: Id; name: string; literals: readonly string[] }): AddEnumerationPlan | Refusal {
     const lv = m.elements.get(req.levelId);
     if (!lv || lv.cls !== 'Model') return refuse('R-FEAT-2', `'${lv?.name ?? req.levelId}' is not a level (R-FEAT-2)`);
-    if (req.name === '') return refuse('R-FEAT-2', `A new enumeration needs a name (R-FEAT-2)`);
+    if (req.name.trim() === '') return refuse('R-FEAT-2', `A new enumeration needs a name (R-FEAT-2)`);
     const names = lv.ownedEnumerations.map((x) => m.enumerations?.get(x)).map((d) => (d && d.kind !== 'unresolved' ? d.name : null));
     if (names.includes(req.name)) return refuse('R-FEAT-2', `'${lv.name}' already has an enumeration named '${req.name}' (R-FEAT-2)`);
     if (req.literals.length === 0) return refuse('R-FEAT-2', `Enumeration '${req.name}' needs at least one literal (R-FEAT-2)`);
-    if (req.literals.some((l) => l === '')) return refuse('R-FEAT-2', `Enumeration '${req.name}' has an empty literal (R-FEAT-2)`);
+    if (req.literals.some((l) => l.trim() === '')) return refuse('R-FEAT-2', `Enumeration '${req.name}' has an empty literal (R-FEAT-2)`);
     const dup = req.literals.find((l, i) => req.literals.indexOf(l) !== i);
     if (dup !== undefined) return refuse('R-FEAT-2', `Enumeration '${req.name}' has the literal '${dup}' twice (R-FEAT-2)`);
     return { ok: true, kind: 'addEnumeration', levelId: lv.id, name: req.name, literals: [...req.literals] };

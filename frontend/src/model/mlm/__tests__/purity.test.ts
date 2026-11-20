@@ -22,8 +22,14 @@ function listTs(dir: string): string[] {
 
 const nonTestFiles = listTs(ROOT);
 
-const BAD = [/from ['"]react['"]/, /from ['"]react-dom/, /from ['"]react-redux/, /from ['"][^'"]*\/joiner['"]/,
-    /from ['"][^'"]*logicWrapper/, /from ['"][^'"]*\/redux\/store/, /\bwindow\./, /\bdocument\./];
+// A module specifier that is impure: react, react-dom, react-redux (and their subpaths), or a path into
+// joiner (the barrel or a subpath such as joiner/classes), logicWrapper or redux/store.
+const IMPURE = String.raw`(?:react(?:-dom|-redux)?(?:\/[^'"]*)?|[^'"]*\/joiner(?:\/[^'"]*)?|[^'"]*logicWrapper[^'"]*|[^'"]*\/redux\/store[^'"]*)`;
+const BAD = [
+    new RegExp(String.raw`from\s*['"]${IMPURE}['"]`),             // import ... from '...'
+    new RegExp(String.raw`\bimport\s*\(?\s*['"]${IMPURE}['"]`),    // import '...'; and import('...')
+    /\bwindow\./, /\bdocument\./,
+];
 
 describe('purity (NFR-8.3)', () => {
     // Positive control: the file list is not empty, so an all-green run is not a search that never ran.
