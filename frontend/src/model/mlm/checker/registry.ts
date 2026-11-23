@@ -6,6 +6,7 @@ import type { DeepIndex } from '../deepIndex';
 import type { DeepModel, Id, Potency, RuleId } from '../types';
 import type { Fix, Severity } from './records';
 import { LEVEL_RULES } from './rules/levels';
+import { POTENCY_RULES } from './rules/potency';
 import { TYPING_RULES } from './rules/typing';
 
 export interface RuleContext { readonly model: DeepModel; readonly ix: DeepIndex; readonly pot: (x: Id) => Potency | null; }
@@ -30,7 +31,7 @@ export const ruleNumber = (id: RuleId): number => Number(id.slice(3));
  */
 const placeholder = (id: RuleId): RuleDef => ({ id, severity: 'error', increment: 1, checks: [], templates: { default: '' }, evaluate: () => [] });
 
-const IMPLEMENTED: readonly RuleDef[] = [...LEVEL_RULES, ...TYPING_RULES];
+const IMPLEMENTED: readonly RuleDef[] = [...LEVEL_RULES, ...TYPING_RULES, ...POTENCY_RULES];
 
 export const RULES: readonly RuleDef[] = [
     ...IMPLEMENTED,
