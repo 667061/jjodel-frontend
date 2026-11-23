@@ -78,6 +78,26 @@ describe('planDelete', () => {
         expect(planDelete(bc1(), buildIndex(bc1()), [id('O2')]).ok).toBe(false);
         expect(planDelete(bc1(), buildIndex(bc1()), [id('O3')]).ok).toBe(true);
     });
+    // S1 review carry-over (S2 Task 7a)
+    it('planDelete on a types cycle (RacingFrame typed by Frame134123) terminates and returns a plan', () => {
+        const m = mutate(bc1(), (e) => { e.get(id('O1/RacingFrame')).types = [id('O3/Frame134123')]; });
+        const p = planDelete(m, buildIndex(m), [id('O1/RacingFrame')]);
+        expect(p.ok).toBe(true);
+        expect((p as DeletePlan).order.at(-1)).toBe(id('O1/RacingFrame'));
+    });
+    it('deleting RacingFrame: full order, deepest level first, features before their clabject, requested last', () =>
+        expect((planDelete(bc1(), buildIndex(bc1()), [id('O1/RacingFrame')]) as DeletePlan).order).toEqual([
+            'O3/Frame134123/serialNumber', 'O3/Frame134123',
+            'O2/RocketA1XL/weight', 'O2/RocketA1XL/serialNumber', 'O2/RocketA1XL/topTubeLength', 'O2/RocketA1XL/downTubeLength',
+            'O2/RocketA1XL/seatTubeLength', 'O2/RocketA1XL/material', 'O2/RocketA1XL',
+            'O1/RacingFrame/weight', 'O1/RacingFrame/serialNumber', 'O1/RacingFrame/topTubeLength', 'O1/RacingFrame/downTubeLength',
+            'O1/RacingFrame/seatTubeLength', 'O1/RacingFrame/material', 'O1/RacingFrame',
+        ].map(id)));
+    it('RacingFrame and RocketA1XL both requested: the instance RocketA1XL comes before its type RacingFrame', () => {
+        const o = (planDelete(bc1(), buildIndex(bc1()), [id('O1/RacingFrame'), id('O2/RocketA1XL')]) as DeletePlan).order;
+        expect(o.indexOf(id('O2/RocketA1XL'))).toBeGreaterThanOrEqual(0);
+        expect(o.indexOf(id('O2/RocketA1XL'))).toBeLessThan(o.indexOf(id('O1/RacingFrame')));
+    });
     it('deleting a level takes its enumerations', () => {
         const t = bc1({ onlyTop: true });
         const p = planDelete(t, buildIndex(t), [id('O0')]) as DeletePlan;
