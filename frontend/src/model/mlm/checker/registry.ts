@@ -5,6 +5,7 @@
 import type { DeepIndex } from '../deepIndex';
 import type { DeepModel, Id, Potency, RuleId } from '../types';
 import type { Fix, Severity } from './records';
+import { FIELD_RULES } from './rules/fields';
 import { LEVEL_RULES } from './rules/levels';
 import { POTENCY_RULES } from './rules/potency';
 import { TYPING_RULES } from './rules/typing';
@@ -26,17 +27,11 @@ export const KNOWN_RULE_IDS: readonly RuleId[] = Array.from({ length: 23 }, (_, 
 export const ruleNumber = (id: RuleId): number => Number(id.slice(3));
 
 /**
- * Placeholder for a rule whose file does not exist yet (brief S2 point 5). It returns nothing, which
- * spec §5 reads as "checked and satisfied", so every placeholder must be gone by the end of Task 11.
+ * WF-1 ... WF-18 from the four rule files. No placeholder: a rule without an evaluate would claim a
+ * check that never ran (spec §5; brief S2 point 5). bc1.test.ts checks that RULES is exactly these.
  */
-const placeholder = (id: RuleId): RuleDef => ({ id, severity: 'error', increment: 1, checks: [], templates: { default: '' }, evaluate: () => [] });
-
-const IMPLEMENTED: readonly RuleDef[] = [...LEVEL_RULES, ...TYPING_RULES, ...POTENCY_RULES];
-
-export const RULES: readonly RuleDef[] = [
-    ...IMPLEMENTED,
-    ...KNOWN_RULE_IDS.slice(0, 18).filter((id) => !IMPLEMENTED.some((r) => r.id === id)).map(placeholder),
-].sort((a, b) => ruleNumber(a.id) - ruleNumber(b.id));
+export const RULES: readonly RuleDef[] = [...LEVEL_RULES, ...TYPING_RULES, ...POTENCY_RULES, ...FIELD_RULES]
+    .sort((a, b) => ruleNumber(a.id) - ruleNumber(b.id));
 
 /** The ids of the registered rules of that increment and below, by rule number. */
 export function evaluatedRuleIds(increment: 1 | 2): readonly RuleId[] {
