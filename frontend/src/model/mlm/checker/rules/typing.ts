@@ -1,7 +1,8 @@
 /**
  * Typing rules WF-4 to WF-8 (spec mlm-concepts §4; R-TYP-2, R-TYP-3, R-TYP-4, R-POT-2, R-INH-5). Pure.
- * Every rule looks at each stored type t of an element x; a type id that is not in the model is skipped
- * (Review Focus 2). Choices (S2), so that one fault gives one record:
+ * Every rule looks at each stored type t of an element x. A type id that is not in the model is reported
+ * once, by WF-5's default variant with the raw id as {type} (slice review, Review Focus 2); the other rules
+ * skip it. Choices (S2), so that one fault gives one record:
  * - WF-4, WF-5 and WF-8 skip Models: their typing is WF-2's (R-LVL-2; R-TYP-3 and R-TYP-4 leave Models to it).
  * - WF-5 skips a type of another class (WF-4's case) and an element or type with no Model (WF-1's case);
  *   its range variant skips a type with d = 0 (WF-6's case: start and end mean nothing, R-POT-2).
@@ -44,6 +45,12 @@ const WF5: RuleDef = {
         range: "'{name}' is {k} level(s) below its type '{type}', which allows instances only {s} to {e} level(s) below.",
     },
     *evaluate({ model: m, ix, pot }: RuleContext): Iterable<RawRecord> {
+        // A type id that is not in the model (deleted outside the MLM tab) is on no level above x (Review Focus 2).
+        for (const xid of orderedIds(m)) {
+            const x = m.elements.get(xid)!;
+            if (x.cls === 'Model') continue;
+            for (const tid of x.types) if (!m.elements.has(tid)) yield { element: x.id, related: [tid], params: { name: displayName(m, ix, x.id), type: tid } };
+        }
         for (const { x, t } of typed(m)) {
             if (x.cls === 'Model' || t.cls !== x.cls) continue;
             const mx = modelOf(m, ix, x.id), mt = modelOf(m, ix, t.id);

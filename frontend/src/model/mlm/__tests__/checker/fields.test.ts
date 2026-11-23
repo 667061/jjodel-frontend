@@ -78,6 +78,18 @@ describe('field rules WF-12 to WF-17 (Task 11)', () => {
     });
     it('FR-8.9 WF-14 typeMismatch is skipped when a data type is unresolved', () =>
         hasNot(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL/weight')).dataType = { kind: 'unresolved', id: 'Pointer_gone' }; }), 'WF-14', id('O2/RocketA1XL/weight')));
+    // Slice review Important 2: a WF-9 potency on the attribute does not hide WF-14, and does not make WF-15 expect a field
+    it('WF-14 is reported on an attribute whose stored potency is partial (WF-9)', () => {
+        const m = mutate(bc1(), (e) => { const a = e.get(id('O2/RocketA1XL/weight')); a.pot = { start: 1, end: null, depth: null }; a.value = '920 gr'; a.dataType = prim('EString'); });
+        const r = runChecker(m).records;
+        expect(r).toContainEqual(expect.objectContaining({ rule: 'WF-9', element: id('O2/RocketA1XL/weight') }));
+        expect(r).toContainEqual(expect.objectContaining({ rule: 'WF-14', element: id('O2/RocketA1XL/weight'), related: [id('O1/RacingFrame/weight')] }));
+        expect(runChecker(withValue('O2/RocketA1XL/weight', '920 gr')).records.filter((x) => x.rule === 'WF-14')).toHaveLength(1);
+        const lexical = mutate(bc1(), (e) => { const a = e.get(id('O2/RocketA1XL/weight')); a.pot = { start: 1, end: null, depth: null }; a.value = '920 gr'; });
+        has(lexical, 'WF-14', id('O2/RocketA1XL/weight'), 'error', "'920 gr' is not a valid EDouble for 'RocketA1XL.weight'.");
+    });
+    it('WF-15 expects no field from a type field whose stored potency is partial (WF-9)', () =>
+        hasNot(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL/weight')).pot = { start: 1, end: null, depth: null }; }), 'WF-15', id('O3/Frame134123')));
     it('FR-8.9 WF-16 sharedType: RocketA1XL gets weight2 typed by RacingFrame.weight', () => {
         const m = mutate(bc1(), (e) => { addAttr(e, id('O2/RocketA1XL'), id('O2/RocketA1XL/weight2'), 'weight2', prim('EDouble'), [id('O1/RacingFrame/weight')], P0, '1.0'); });
         expect(fieldRecords(m)).toContainEqual(expect.objectContaining({

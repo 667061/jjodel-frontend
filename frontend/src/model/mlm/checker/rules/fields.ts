@@ -2,12 +2,14 @@
  * Field rules WF-12 to WF-17 (spec mlm-concepts §4; R-INST-3, R-INST-4, R-FEAT-1, R-FEAT-2, R-INH-2). Pure.
  * Values are judged exactly as stored (Review Focus 4): WF-12 reports only null, so '' is a value that
  * WF-14 judges. Choices (S2), so that one fault gives one record:
- * - WF-12, WF-13 and WF-14 skip an attribute whose stored potency is WF-9's case.
+ * - WF-12 and WF-13 skip an attribute whose stored potency is WF-9's case (they need its depth); WF-14 does
+ *   not, since neither of its checks depends on potency (slice review).
  * - WF-14 checks every non-null value (brief S2 point 7) against a resolved data type; a missing or
  *   unresolved data type is not WF-14's fault. Variant typeMismatch compares data type ids with each
  *   type field's and is skipped when either side is missing or unresolved.
  * - WF-15 asks plannedFields (plans.ts) what an instance of each type t of y at dist(t, y) gets, and
- *   skips a type that is WF-4/5/6's case (not a clabject, d = 0, distance unknown or outside its range).
+ *   skips a type that is WF-4/5/6's case (not a clabject, d = 0, distance unknown or outside its range),
+ *   and a planned field whose type field has a WF-9 potency (its effective depth is read with 1s, R-POT-4).
  *   A field counts as present when some feature in feats*(y) is typed by it.
  * - WF-16 (default): a typed field's type must be in feats*(a) for some a with instOf(owner, a) (typeClosure);
  *   a type of another class is WF-4's. Variant sharedType looks at the clabject's own features.
@@ -63,7 +65,7 @@ const WF14: RuleDef = {
     },
     *evaluate(ctx: RuleContext): Iterable<RawRecord> {
         const { model: m, ix } = ctx;
-        for (const { a } of checkedAttributes(ctx)) {
+        for (const a of attributes(m)) { // both checks are independent of potency, so a WF-9 potency does not hide them
             const dt = a.dataType;
             const owner = ownerName(m, ix, a.id);
             if (a.value !== null && dt && dt.kind !== 'unresolved' && !checkLexical(dt, a.value).ok) {
@@ -92,6 +94,7 @@ const WF15: RuleDef = {
                 if (t?.cls !== 'Clabject' || !pt || pt.depth < 1 || k == null || k < pt.start || k > pt.end) continue;
                 for (const f of plannedFields(m, ix, tid, k)) {
                     if (present.has(f.typeOf) || reported.has(f.typeOf)) continue;
+                    if (domainProblem(m.elements.get(f.typeOf)!.pot) != null) continue; // WF-9's case: its effective depth is a guess
                     reported.add(f.typeOf);
                     yield { element: y.id, related: [f.typeOf], params: { name: y.name, a: ownerName(m, ix, f.typeOf), f: f.name } };
                 }

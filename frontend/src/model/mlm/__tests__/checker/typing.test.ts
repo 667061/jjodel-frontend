@@ -61,7 +61,18 @@ describe('typing rules WF-4 to WF-8 (Task 9)', () => {
     it('BC1, field-leap BC1 and Customer variant have no WF-4...WF-8 record', () => {
         for (const m of [bc1(), bc1({ fieldLeap: true }), bc1({ customer: true })]) expect(typingRecords(m)).toEqual([]);
     });
-    // Review Focus 2
-    it('a dangling type id gives no typing record and does not throw', () =>
-        expect(typingRecords(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL')).types = ['Pointer_gone']; }))).toEqual([]));
+    // Review Focus 2 (slice review Important 1): a type deleted outside the MLM tab is reported by WF-5, not passed over
+    it('WF-5 a dangling type id of a clabject', () => expect(typingRecords(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL')).types = ['Pointer_gone']; }))).toEqual([
+        expect.objectContaining({ rule: 'WF-5', element: id('O2/RocketA1XL'), severity: 'error', related: ['Pointer_gone'], message: "'Pointer_gone' is not on a level above 'RocketA1XL'." })]));
+    it('WF-5 a dangling type id of a feature', () => expect(typingRecords(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL/weight')).types = ['Pointer_gone']; }))).toEqual([
+        expect.objectContaining({ rule: 'WF-5', element: id('O2/RocketA1XL/weight'), message: "'Pointer_gone' is not on a level above 'RocketA1XL.weight'." })]));
+    // Review Focus 1 (slice review Minor 3): cycles in supers and in clabject types reach every rule and terminate
+    it('runChecker terminates on a supers cycle (Component <-> Bicycle) and on a self-super', () => {
+        expect(() => runChecker(mutate(bc1(), (e) => { e.get(id('O0/Component')).supers = [id('O0/Bicycle')]; e.get(id('O0/Bicycle')).supers = [id('O0/Component')]; }))).not.toThrow();
+        expect(() => runChecker(mutate(bc1(), (e) => { e.get(id('O1/RacingFrame')).supers = [id('O1/RacingFrame')]; }))).not.toThrow();
+    });
+    it('runChecker terminates on a clabject types cycle and reports it through WF-5', () => {
+        has(mutate(bc1(), (e) => { e.get(id('O1/RacingFrame')).types = [id('O3/Frame134123')]; }), 'WF-5', id('O1/RacingFrame'), 'error');
+        has(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL')).types = [id('O2/RocketA1XL')]; }), 'WF-5', id('O2/RocketA1XL'), 'error');
+    });
 });
