@@ -43,6 +43,40 @@ function namesIn(m: DeepModel, containerId: Id): string[] {
 }
 
 /**
+ * R-INST-3: the fields an instance of typeId at `distance` below it gets, in feats* order, without values:
+ * for each a with instOf(y, a) at distance k and each f in feats*(a) with d(f) >= 1 and k in [s(f)..e(f)],
+ * one field typed by f with potency (1, 1, d(f) - 1). Checks no precondition, so it also serves an existing
+ * clabject (WF-15, slice S2); planInstantiate calls it after its own checks.
+ */
+export function plannedFields(m: DeepModel, ix: DeepIndex, typeId: Id, distance: number): readonly PlannedField[] {
+    // The new instance y is typedBy every s in supers*(t) at distance k (spec §3.0), and through each such s
+    // an instance of s's own closure at k + its distance. First occurrence of a type wins.
+    const closure: { type: Id; distance: number }[] = [];
+    const seenT = new Set<Id>();
+    const addT = (type: Id, d: number) => { if (!seenT.has(type)) { seenT.add(type); closure.push({ type, distance: d }); } };
+    const supers = supersStar(m, typeId);
+    for (const s of supers) addT(s, distance);
+    for (const s of supers) for (const c of typeClosure(m, ix, s)) addT(c.type, c.distance + distance);
+    const fields: PlannedField[] = [];
+    const seenF = new Set<Id>();
+    for (const { type: a, distance: k } of closure) {
+        for (const f of featsStar(m, ix, a)) {
+            if (seenF.has(f)) continue;
+            const fe = m.elements.get(f);
+            if (!fe || (fe.cls !== 'Attribute' && fe.cls !== 'Reference')) continue;
+            const fp = effectivePotency(m, ix, f);
+            if (!fp || fp.depth < 1 || k < fp.start || k > fp.end) continue;
+            seenF.add(f);
+            fields.push({
+                key: f, cls: fe.cls, name: fe.name, typeOf: f, pot: instancePotency(fp),
+                dataType: fe.cls === 'Attribute' ? (fe.dataType?.id ?? null) : null,
+            });
+        }
+    }
+    return fields;
+}
+
+/**
  * R-INST-1 preconditions (via checkInstantiable, shared with validTypesAt), a non-empty name free in the
  * target Model; then R-INST-2 (the clabject) and R-INST-3 (its fields: for each a with instOf(y, a) at
  * distance k and each f in feats*(a) with d(f) >= 1 and k in [s(f)..e(f)]). A value given for a new
@@ -55,33 +89,10 @@ export function planInstantiate(m: DeepModel, ix: DeepIndex, req: { typeId: Id; 
     if (req.name.trim() === '') return refuse('R-INST-2', `A new clabject needs a name (R-INST-2)`);
     if (namesIn(m, req.targetModelId).includes(req.name)) return refuse('R-INST-2', `'${target.name}' already has an element named '${req.name}' (R-INST-2)`);
 
-    // The new instance y is typedBy every s in supers*(t) at distance k (spec §3.0), and through each such s
-    // an instance of s's own closure at k + its distance. First occurrence of a type wins.
-    const closure: { type: Id; distance: number }[] = [];
-    const seenT = new Set<Id>();
-    const addT = (type: Id, distance: number) => { if (!seenT.has(type)) { seenT.add(type); closure.push({ type, distance }); } };
-    const supers = supersStar(m, req.typeId);
-    for (const s of supers) addT(s, ok.distance);
-    for (const s of supers) for (const c of typeClosure(m, ix, s)) addT(c.type, c.distance + ok.distance);
-    const fields: PlannedField[] = [];
-    const seenF = new Set<Id>();
-    for (const { type: a, distance: k } of closure) {
-        for (const f of featsStar(m, ix, a)) {
-            if (seenF.has(f)) continue;
-            const fe = m.elements.get(f);
-            if (!fe || (fe.cls !== 'Attribute' && fe.cls !== 'Reference')) continue;
-            const fp = effectivePotency(m, ix, f);
-            if (!fp || fp.depth < 1 || k < fp.start || k > fp.end) continue;
-            seenF.add(f);
-            const pot = instancePotency(fp);
-            const value = pot.depth === 0 ? req.values?.[fe.name] : undefined;
-            fields.push({
-                key: f, cls: fe.cls, name: fe.name, typeOf: f, pot,
-                dataType: fe.cls === 'Attribute' ? (fe.dataType?.id ?? null) : null,
-                ...(value !== undefined ? { value } : {}),
-            });
-        }
-    }
+    const fields: PlannedField[] = plannedFields(m, ix, req.typeId, ok.distance).map((f) => {
+        const value = f.pot.depth === 0 ? req.values?.[f.name] : undefined;
+        return value !== undefined ? { ...f, value } : f;
+    });
     const names = fields.map((f) => f.name);
     const dup = names.find((n, i) => names.indexOf(n) !== i);
     if (dup !== undefined) return refuse('WF-17', `Instantiating '${m.elements.get(req.typeId)!.name}' would give '${req.name}' two fields named '${dup}' (WF-17)`);

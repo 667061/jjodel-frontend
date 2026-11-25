@@ -3,6 +3,8 @@
  * as a plain-data DeepModel (architecture §4.1). Ids are readable paths ('O2/RocketA1XL/weight').
  * Every d = 0 row is stored as (1, 1, 0) (0008/0009 item 1).
  */
+import { buildIndex } from '../../deepIndex';
+import { planAddAttribute, planInstantiate, type AddAttributePlan, type InstantiatePlan } from '../../plans';
 import type { DataTypeRef, DeepAttribute, DeepClabject, DeepElement, DeepLevel, DeepModel, Id, StoredPotency } from '../../types';
 
 export function id(path: string): Id { return path; }
@@ -137,6 +139,69 @@ export function bc1(opts: Opts = {}): DeepModel {
     }
     return { modelId: 'Pointer_bc1_m1', languageVersion: 1, elements, order: kept.map((x) => x.id),
         enumerations: new Map([[FRAME_MATERIAL.id, FRAME_MATERIAL]]) };
+}
+
+/** Values for the d = 0 fields the scale model creates, by field name. */
+const SCALE_VALUES: Readonly<Record<string, string>> = {
+    suitedForRace: 'true', suitedForToughTerrain: 'false', regularSalesPrice: '4999.00', weight: '920.0', serialNumber: 's1',
+    ext1: '1.5', ext2: '2.5', ext3: '3.5',
+};
+
+/**
+ * NFR-6 scale model (requirements.md NFR-6): BC1's O0 (Bicycle, Component) plus 4 categories on O1
+ * (alternately Bicycle and Component, each with 3 EDouble extensions ext1..ext3, (1, 1, 1)), 5 models
+ * per category on O2, and physical items on O3, one per model in turn, until there are n clabjects
+ * (n >= 26 gives all of O1 and O2). Every clabject is planned with planInstantiate and every extension
+ * with planAddAttribute; the plans are turned into DeepElements here, with path ids, because the core
+ * has no "apply a plan" function (the executor is slice S5's). Every d = 0 field gets a value
+ * (SCALE_VALUES), so a well-formed scale model has no check record.
+ */
+export function scaleModel(n: number): DeepModel {
+    const base = bc1({ clabjectsUpTo: 0 });
+    const elements = new Map<Id, DeepElement>(base.elements);
+    const order = [...base.order];
+    const cur = (): DeepModel => ({ ...base, elements, order });
+    const put = (e: DeepElement) => { if (!elements.has(e.id)) order.push(e.id); elements.set(e.id, e); };
+    let clabjects = [...elements.values()].filter((e) => e.cls === 'Clabject').length;
+    const dataTypeOf = (f: Id): DataTypeRef | null => { const fe = elements.get(f); return fe?.cls === 'Attribute' ? fe.dataType : null; };
+
+    const instantiate = (typeId: Id, targetModelId: Id, name: string): Id => {
+        const m = cur();
+        const p = planInstantiate(m, buildIndex(m), { typeId, targetModelId, name, values: SCALE_VALUES });
+        if (!p.ok) throw new Error(`scaleModel: ${p.message}`);
+        const plan: InstantiatePlan = p;
+        const cid = `${targetModelId}/${name}`;
+        const features = plan.fields.map((f) => `${cid}/${f.name}`);
+        put({ id: cid, cls: 'Clabject', name, pot: plan.clabject.pot, types: [typeId], container: targetModelId, isAbstract: false, isMultiType: false, supers: [], features });
+        for (const f of plan.fields) {
+            put({ id: `${cid}/${f.name}`, cls: 'Attribute', name: f.name, pot: f.pot, types: [f.typeOf], container: cid, dataType: dataTypeOf(f.typeOf), value: f.value ?? null });
+        }
+        const lv = elements.get(targetModelId) as DeepLevel;
+        put({ ...lv, elements: [...lv.elements, cid] });
+        clabjects++;
+        return cid;
+    };
+    const extend = (ownerId: Id, name: string) => {
+        const m = cur();
+        const p = planAddAttribute(m, buildIndex(m), { ownerId, name, dataType: PRIM.EDouble, pot: { start: 1, end: 1, depth: 1 } });
+        if (!p.ok) throw new Error(`scaleModel: ${p.message}`);
+        const plan: AddAttributePlan = p;
+        const aid = `${ownerId}/${name}`;
+        put({ id: aid, cls: 'Attribute', name: plan.name, pot: plan.pot, types: [], container: ownerId, dataType: prim('EDouble'), value: null });
+        const o = elements.get(ownerId) as DeepClabject;
+        put({ ...o, features: [...o.features, aid] });
+    };
+
+    const categories: Id[] = [];
+    for (let i = 0; i < 4 && clabjects < n; i++) {
+        const c = instantiate(i % 2 === 0 ? 'O0/Bicycle' : 'O0/Component', 'O1', `Category${i}`);
+        for (const x of ['ext1', 'ext2', 'ext3']) extend(c, x);
+        categories.push(c);
+    }
+    const models: Id[] = [];
+    for (const c of categories) for (let j = 0; j < 5 && clabjects < n; j++) models.push(instantiate(c, 'O2', `${c.slice(3)}Model${j}`));
+    for (let k = 0; clabjects < n && models.length > 0; k++) instantiate(models[k % models.length], 'O3', `Item${k}`);
+    return { ...base, elements, order };
 }
 
 /** Deep copy (structuredClone), apply the edit to the copy's elements, return the copy. The shared fixture is never touched. */

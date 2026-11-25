@@ -77,9 +77,11 @@ export function featsStar(m: DeepModel, _ix: DeepIndex, c: Id): readonly Id[] {
 }
 
 /**
- * Every a with instOf(y, a) (spec §3.0), nearest first, each once. The distance is summed hop by
- * hop: one hop is dist(t, x) by stored levels, or 1 when a level is unknown, so in a well-formed
- * model it equals dist(a, y). Supers of a type share its hop (R-INH-1: same Model). y itself is
+ * Every a with instOf(y, a) (spec §3.0), each once, in rounds of typing steps: first the types of y
+ * (and their supers), then their types, and so on. This is not "nearest first": a leap type found in
+ * round 1 can be farther from y than an entry of round 2, and an a reachable on two paths keeps the
+ * distance of the round that found it first. The distance is summed hop by hop: one hop is dist(t, x)
+ * by stored levels, or 1 when a level is unknown, so in a well-formed model it equals dist(a, y). Supers of a type share its hop (R-INH-1: same Model). y itself is
  * never listed, even in a types cycle; dangling ids are skipped.
  */
 export function typeClosure(m: DeepModel, ix: DeepIndex, y: Id): ReadonlyArray<{ readonly type: Id; readonly distance: number }> {
