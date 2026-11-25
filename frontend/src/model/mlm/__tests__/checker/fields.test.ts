@@ -78,6 +78,25 @@ describe('field rules WF-12 to WF-17 (Task 11)', () => {
     });
     it('FR-8.9 WF-14 typeMismatch is skipped when a data type is unresolved', () =>
         hasNot(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL/weight')).dataType = { kind: 'unresolved', id: 'Pointer_gone' }; }), 'WF-14', id('O2/RocketA1XL/weight')));
+    // Elias, 2026-11-25: a missing or unresolved data type is derived from the type field; if none can be derived, WF-14 noType
+    it('WF-14 checks a value against the data type derived from the type field when the own one is missing or unresolved', () => {
+        for (const dt of [null, { kind: 'unresolved', id: 'Pointer_gone' }]) {
+            const bad = mutate(bc1(), (e) => { const a = e.get(id('O2/RocketA1XL/weight')); a.dataType = dt; a.value = '920 gr'; });
+            has(bad, 'WF-14', id('O2/RocketA1XL/weight'), 'error', "'920 gr' is not a valid EDouble for 'RocketA1XL.weight'.");
+            hasNot(mutate(bc1(), (e) => { e.get(id('O2/RocketA1XL/weight')).dataType = dt; }), 'WF-14', id('O2/RocketA1XL/weight'));
+        }
+    });
+    it('WF-14 noType: an attribute whose data type is missing and cannot be derived', () => {
+        has(mutate(bc1(), (e) => { e.get(id('O2/ChallengerA2XL/forTallCyclists')).dataType = null; }), 'WF-14', id('O2/ChallengerA2XL/forTallCyclists'), 'error',
+            "'ChallengerA2XL.forTallCyclists' has no known data type.");
+        has(mutate(bc1(), (e) => { e.get(id('O1/RacingFrame/material')).dataType = { kind: 'unresolved', id: 'Pointer_gone' }; }), 'WF-14', id('O1/RacingFrame/material'), 'error',
+            "'RacingFrame.material' has no known data type.");
+        // the derivation follows the type-field chain: only when no field on it has a data type is it noType
+        const chain = (ids: string[]) => mutate(bc1(), (e) => { for (const x of ids) e.get(id(x)).dataType = null; });
+        hasNot(chain(['O1/RacingFrame/weight', 'O2/RocketA1XL/weight']), 'WF-14', id('O2/RocketA1XL/weight'));
+        has(chain(['O0/Component/weight', 'O1/RacingFrame/weight', 'O2/RocketA1XL/weight']), 'WF-14', id('O2/RocketA1XL/weight'), 'error',
+            "'RocketA1XL.weight' has no known data type.");
+    });
     // Slice review Important 2: a WF-9 potency on the attribute does not hide WF-14, and does not make WF-15 expect a field
     it('WF-14 is reported on an attribute whose stored potency is partial (WF-9)', () => {
         const m = mutate(bc1(), (e) => { const a = e.get(id('O2/RocketA1XL/weight')); a.pot = { start: 1, end: null, depth: null }; a.value = '920 gr'; a.dataType = prim('EString'); });

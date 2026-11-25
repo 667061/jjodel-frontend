@@ -4,8 +4,9 @@
  * WF-14 judges. Choices (S2), so that one fault gives one record:
  * - WF-12 and WF-13 skip an attribute whose stored potency is WF-9's case (they need its depth); WF-14 does
  *   not, since neither of its checks depends on potency (slice review).
- * - WF-14 checks every non-null value (brief S2 point 7) against a resolved data type; a missing or
- *   unresolved data type is not WF-14's fault. Variant typeMismatch compares data type ids with each
+ * - WF-14 checks every non-null value (brief S2 point 7) against the attribute's data type; a missing or
+ *   unresolved one is derived from the type-field chain, and an attribute where nothing can be derived gets
+ *   variant noType (Elias, 2026-11-25). Variant typeMismatch compares the own data type id with each
  *   type field's and is skipped when either side is missing or unresolved.
  * - WF-15 asks plannedFields (plans.ts) what an instance of each type t of y at dist(t, y) gets, and
  *   skips a type that is WF-4/5/6's case (not a clabject, d = 0, distance unknown or outside its range),
@@ -20,7 +21,7 @@ import type { DeepIndex } from '../../deepIndex';
 import { distance } from '../../levels';
 import { plannedFields } from '../../plans';
 import { domainProblem } from '../../potency';
-import type { DeepAttribute, DeepClabject, DeepElement, DeepModel, Id } from '../../types';
+import type { DataTypeRef, DeepAttribute, DeepClabject, DeepElement, DeepModel, Id } from '../../types';
 import { checkLexical } from '../../values';
 import { displayName, ownerName } from '../records';
 import type { RawRecord, RuleContext, RuleDef } from '../registry';
@@ -35,6 +36,29 @@ function* checkedAttributes({ model: m, pot }: RuleContext): Iterable<{ a: DeepA
         const p = pot(a.id);
         if (p) yield { a, depth: p.depth };
     }
+}
+
+type ResolvedType = Exclude<DataTypeRef, { kind: 'unresolved' }>;
+const isResolved = (dt: DataTypeRef | null): dt is ResolvedType => dt != null && dt.kind !== 'unresolved';
+
+/**
+ * Elias, 2026-11-25: an attribute whose own data type is missing or unresolved takes the data type of its
+ * type field (R-FEAT-2: instantiation keeps the data type), following the type-field chain upwards,
+ * nearest first and cycle-safe. null = nothing on the chain has one.
+ */
+function derivedDataType(m: DeepModel, a: DeepAttribute): ResolvedType | null {
+    const seen = new Set<Id>([a.id]);
+    const queue: Id[] = [...a.types];
+    for (let i = 0; i < queue.length; i++) {
+        const t = queue[i];
+        if (seen.has(t)) continue;
+        seen.add(t);
+        const te = m.elements.get(t);
+        if (te?.cls !== 'Attribute') continue;
+        if (isResolved(te.dataType)) return te.dataType;
+        queue.push(...te.types);
+    }
+    return null;
 }
 
 const WF12: RuleDef = {
@@ -62,19 +86,21 @@ const WF14: RuleDef = {
     templates: {
         default: "'{value}' is not a valid {type} for '{owner}.{name}'.",
         typeMismatch: "'{owner}.{name}' has type {type}, but its type field '{f}' has type {expected}.",
+        noType: "'{owner}.{name}' has no known data type.", // Elias, 2026-11-25; spec §4 amendment pending
     },
     *evaluate(ctx: RuleContext): Iterable<RawRecord> {
         const { model: m, ix } = ctx;
-        for (const a of attributes(m)) { // both checks are independent of potency, so a WF-9 potency does not hide them
-            const dt = a.dataType;
+        for (const a of attributes(m)) { // the checks are independent of potency, so a WF-9 potency does not hide them
             const owner = ownerName(m, ix, a.id);
-            if (a.value !== null && dt && dt.kind !== 'unresolved' && !checkLexical(dt, a.value).ok) {
+            const dt = isResolved(a.dataType) ? a.dataType : derivedDataType(m, a);
+            if (!dt) { yield { element: a.id, variant: 'noType', params: { owner, name: a.name } }; continue; }
+            if (a.value !== null && !checkLexical(dt, a.value).ok) {
                 yield { element: a.id, params: { value: a.value, type: dt.name, owner, name: a.name } };
             }
-            if (!dt || dt.kind === 'unresolved') continue;
+            if (!isResolved(a.dataType)) continue; // a derived data type equals its type field's by construction
             for (const tid of a.types) {
                 const t = m.elements.get(tid);
-                if (t?.cls !== 'Attribute' || !t.dataType || t.dataType.kind === 'unresolved' || t.dataType.id === dt.id) continue;
+                if (t?.cls !== 'Attribute' || !isResolved(t.dataType) || t.dataType.id === dt.id) continue;
                 yield { element: a.id, related: [tid], variant: 'typeMismatch', params: { owner, name: a.name, type: dt.name, f: displayName(m, ix, tid), expected: t.dataType.name } };
             }
         }

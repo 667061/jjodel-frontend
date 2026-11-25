@@ -29,7 +29,8 @@ function* typed(m: DeepModel): Iterable<{ x: DeepElement; t: DeepElement }> {
 
 const WF4: RuleDef = {
     id: 'WF-4', severity: 'error', increment: 1, checks: ['R-TYP-2'],
-    templates: { default: "'{name}' is a {kind}, but its type '{type}' is a {typeKind}." },
+    // Elias, 2026-11-25: 'is of class' instead of the spec's "is a {kind}" (which read "is a Attribute"); spec §4 amendment pending
+    templates: { default: "'{name}' is of class {kind}, but its type '{type}' is of class {typeKind}." },
     *evaluate({ model: m, ix }: RuleContext): Iterable<RawRecord> {
         for (const { x, t } of typed(m)) {
             if (x.cls === 'Model' || t.cls === x.cls) continue;

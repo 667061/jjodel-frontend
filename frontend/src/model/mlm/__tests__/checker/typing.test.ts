@@ -26,7 +26,7 @@ describe('typing rules WF-4 to WF-8 (Task 9)', () => {
     it('WF-4 RacingFrame.weight typed by Component', () => {
         const m = mutate(bc1(), (e) => { e.get(id('O1/RacingFrame/weight')).types = [id('O0/Component')]; });
         has(m, 'WF-4', id('O1/RacingFrame/weight'), 'error');
-        expect(typingRecords(m).find((r) => r.rule === 'WF-4')?.message).toBe("'RacingFrame.weight' is a Attribute, but its type 'Component' is a Clabject.");
+        expect(typingRecords(m).find((r) => r.rule === 'WF-4')?.message).toBe("'RacingFrame.weight' is of class Attribute, but its type 'Component' is of class Clabject."); // wording: Elias, 2026-11-25
     });
     it('WF-5 Frame134123 typed by RacingFrame (range variant)', () => {
         const m = mutate(bc1(), (e) => { e.get(id('O3/Frame134123')).types = [id('O1/RacingFrame')]; });
