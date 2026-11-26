@@ -80,8 +80,10 @@ try {
     if (process.env.DUMP_OUT) writeFileSync(process.env.DUMP_OUT, after + '\n');
 
     const person = after.split('\n').find((l) => l.includes('| class=Person |')) ?? '';
-    check('NFR-3.1 dump after save+reload equals dump before save, with Person age 42',
-        after === before && /\bage=\[42\]/.test(person), after === before ? '' : `\nBEFORE\n${before}\nAFTER\n${after}`);
+    const ageAttr = after.split('\n').find((l) => l.startsWith('persons_mm.default.Person.age | DAttribute |')) ?? '';
+    check('NFR-3.1 dump after save+reload equals dump before save, with Person age 42 and the metamodel attribute age: EInt',
+        after === before && /\bage=\[42\]/.test(person) && /\| type=EInt \|/.test(ageAttr),
+        after === before ? `metamodel line: ${ageAttr || 'MISSING'}` : `\nBEFORE\n${before}\nAFTER\n${after}`);
     check('negative control (P12): expects age 43, must FAIL', /\bage=\[43\]/.test(person), person);
 } catch (e) {
     check('smoke ran to the end', false, String(e));

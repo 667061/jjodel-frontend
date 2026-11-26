@@ -60,7 +60,8 @@ export async function clickPane(page: Page): Promise<void> {
 
 /** Canonical dump of a model: one line per DObject of the model, sorted by containment path. Each line holds the
  *  class name, the name, every slot as name=values (pointers resolved to containment paths), the father's kind
- *  and `_state`. Ids never appear, so two runs of the same steps give the same text. */
+ *  and `_state`; then one line per class and attribute of the model's metamodel (attribute type name and bounds).
+ *  Ids never appear, so two runs of the same steps give the same text. */
 export async function dumpModel(page: Page, modelId: string): Promise<string> {
     const lines = await page.evaluate((mid: string) => {
         const idl = (window as any).store.getState().idlookup as Record<string, any>;
@@ -95,6 +96,17 @@ export async function dumpModel(page: Page, modelId: string): Promise<string> {
                 return `${idl[v?.instanceof]?.name}=[${(v?.values || []).map(show).join(',')}]`;
             });
             out.push(`${pathOf(d.id)} | class=${idl[d.instanceof]?.name} | name=${JSON.stringify(d.name)} | father=${idl[d.father]?.className} | state=${JSON.stringify(d._state ?? null)} | ${slots.join(' ')}`);
+        }
+        // The model's metamodel: its classes and attributes (type name and bounds), keyed by path like the objects.
+        const mmId = model.instanceof;
+        const inMetamodel = (d: any): boolean => {
+            for (let cur = d, n = 0; cur && n < 50; cur = idl[cur.father], n++) if (cur.id === mmId) return true;
+            return false;
+        };
+        for (const d of Object.values(idl)) {
+            if (!mmId || !inMetamodel(d)) continue;
+            if (d.className === 'DClass') out.push(`${pathOf(d.id)} | DClass | abstract=${!!d.abstract}`);
+            if (d.className === 'DAttribute') out.push(`${pathOf(d.id)} | DAttribute | type=${idl[d.type]?.name} | lower=${d.lowerBound} | upper=${d.upperBound}`);
         }
         return out.sort();
     }, modelId);
