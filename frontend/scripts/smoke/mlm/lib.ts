@@ -6,9 +6,12 @@
  *   HEADED      any value: show the browser
  */
 import { chromium, type Browser, type Page } from '@playwright/test';
-import { seed, BOOT_MS, NAV_MS } from '../states.ts';
+import { seed } from '../states.ts';
 
 export const URL = (process.env.PROBE_URL || 'http://localhost:3072').replace(/\/$/, '');
+
+/** Upper bound of the condition waits (waitForFunction, waitFor) of the MLM scripts. */
+export const WAIT_MS = 60000;
 
 /** Launches the browser and opens a page seeded for offline mode: `offline`, the offline user, and every
  *  welcome-modal key, including the 3.1.2 one `jjodel_welcome_3_1_1_seen` (WelcomeModal.tsx:6). */
@@ -22,36 +25,45 @@ export async function launch(): Promise<{ browser: Browser; page: Page }> {
         localStorage.setItem('jjodel_welcome_3_1_1_seen', '1');
     });
     const page = await ctx.newPage();
-    page.on('pageerror', (e) => console.log(`PAGEERROR ${e.message.slice(0, 300)}`));
+    page.on('pageerror', (e) => console.log(`PAGEERROR ${e.message}`));
     return { browser, page };
 }
 
-/** Creates an offline project through the dashboard and returns its id, or null. */
+/** Creates an offline project through the dashboard and returns its id, or null. Waits for the dashboard's
+ *  New Project button and then for a project of that name in localStorage (condition waits, from the M0 run). */
 export async function createProject(page: Page, name: string): Promise<string | null> {
     await page.goto(`${URL}/#/allProjects`, { waitUntil: 'domcontentloaded', timeout: 300000 });
-    await page.waitForTimeout(BOOT_MS);
-    await page.locator('button', { hasText: 'New Project' }).first().click();
+    const newProject = page.locator('button', { hasText: 'New Project' }).first();
+    await newProject.waitFor({ state: 'visible', timeout: 300000 });
+    await newProject.click();
     await page.waitForTimeout(1200);
     await page.locator('input[type="text"]').first().fill(name);
     await page.locator('button', { hasText: /^Create/ }).last().click();
-    await page.waitForTimeout(5000);
-    return page.evaluate(() => {
-        const arr = JSON.parse(localStorage.getItem('projects') || '[]') as Array<{ id: string }>;
-        return arr.length ? arr[arr.length - 1].id : null;
-    });
+    await page.waitForFunction((n: string) => {
+        const arr = JSON.parse(localStorage.getItem('projects') || '[]') as Array<{ name?: string }>;
+        return arr.some((p) => p.name === n);
+    }, name, { timeout: WAIT_MS });
+    return page.evaluate((n: string) => {
+        const arr = JSON.parse(localStorage.getItem('projects') || '[]') as Array<{ id: string; name?: string }>;
+        return arr.filter((p) => p.name === n).pop()?.id ?? null;
+    }, name);
 }
 
-/** Opens a project by id and hides the notification layers that can swallow clicks. */
+/** Opens a project by id, waits until it is the loaded project (`LProject.getProject().id`), and hides the
+ *  notification layers that can swallow clicks. */
 export async function openProject(page: Page, projectId: string): Promise<void> {
     await page.goto(`${URL}/#/project?id=${projectId}`, { waitUntil: 'domcontentloaded', timeout: 300000 });
-    await page.waitForTimeout(NAV_MS);
+    await page.waitForFunction((id: string) => (window as any).LProject?.getProject?.()?.id === id, projectId, { timeout: WAIT_MS });
+    await page.waitForTimeout(3000);
     await page.addStyleTag({ content: '.notification-widget, .notification-content, .donation-banner { pointer-events: none !important; display: none !important; }' }).catch(() => {});
 }
 
 /** Clicks the visible canvas pane of the active tab at (50, 50): a real gesture, so that later writes are
- *  recorded as undo entries (thesis spike T2.2 §7.2; the bottom-right corner is covered by the properties overlay). */
-export async function clickPane(page: Page): Promise<void> {
+ *  recorded as undo entries (thesis spike T2.2 §7.2; the bottom-right corner is covered by the properties overlay).
+ *  Waits up to `timeout` ms for the pane to be visible. */
+export async function clickPane(page: Page, timeout = WAIT_MS): Promise<void> {
     const pane = page.locator('.dock-tabpane-active .editor-v2 .react-flow__pane').first();
+    await pane.waitFor({ state: 'visible', timeout });
     const box = await pane.boundingBox();
     if (!box) throw new Error('clickPane: no visible canvas pane in the active tab');
     await page.mouse.click(box.x + 50, box.y + 50);
@@ -61,12 +73,22 @@ export async function clickPane(page: Page): Promise<void> {
 /** Canonical dump of a model: one line per DObject of the model, sorted by containment path. Each line holds the
  *  class name, the name, every slot as name=values (pointers resolved to containment paths), the father's kind
  *  and `_state`; then one line per class and attribute of the model's metamodel (attribute type name and bounds).
- *  Ids never appear, so two runs of the same steps give the same text. */
+ *  Ids never appear and object keys are sorted (`canon`, from the M0 run), so two runs of the same steps give the
+ *  same text. Throws when the model is not in the store, so that a missing model cannot compare equal to anything. */
 export async function dumpModel(page: Page, modelId: string): Promise<string> {
     const lines = await page.evaluate((mid: string) => {
         const idl = (window as any).store.getState().idlookup as Record<string, any>;
         const model = idl[mid];
-        if (!model) return [`MISSING MODEL ${mid}`];
+        if (!model) throw new Error(`dumpModel: model ${mid} is not in the store`);
+        const canon = (v: unknown): unknown => {
+            if (Array.isArray(v)) return v.map(canon);
+            if (v && typeof v === 'object') {
+                const out: Record<string, unknown> = {};
+                for (const k of Object.keys(v as object).sort()) out[k] = canon((v as any)[k]);
+                return out;
+            }
+            return v;
+        };
         const pathOf = (id: string, depth = 0): string => {
             const d = idl[id];
             if (!d) return `MISSING`;
@@ -87,7 +109,7 @@ export async function dumpModel(page: Page, modelId: string): Promise<string> {
             for (let cur = d, n = 0; cur && n < 50; cur = idl[cur.father], n++) if (cur.id === mid) return true;
             return false;
         };
-        const show = (x: unknown) => (typeof x === 'string' && idl[x] ? `@${pathOf(x)}` : JSON.stringify(x));
+        const show = (x: unknown) => (typeof x === 'string' && idl[x] ? `@${pathOf(x)}` : JSON.stringify(canon(x)));
         const out: string[] = [];
         for (const d of Object.values(idl)) {
             if (d?.className !== 'DObject' || !inModel(d)) continue;
@@ -95,7 +117,7 @@ export async function dumpModel(page: Page, modelId: string): Promise<string> {
                 const v = idl[f];
                 return `${idl[v?.instanceof]?.name}=[${(v?.values || []).map(show).join(',')}]`;
             });
-            out.push(`${pathOf(d.id)} | class=${idl[d.instanceof]?.name} | name=${JSON.stringify(d.name)} | father=${idl[d.father]?.className} | state=${JSON.stringify(d._state ?? null)} | ${slots.join(' ')}`);
+            out.push(`${pathOf(d.id)} | class=${idl[d.instanceof]?.name} | name=${JSON.stringify(d.name)} | father=${idl[d.father]?.className} | state=${JSON.stringify(canon(d._state ?? null))} | ${slots.join(' ')}`);
         }
         // The model's metamodel: its classes and attributes (type name and bounds), keyed by path like the objects.
         const mmId = model.instanceof;
