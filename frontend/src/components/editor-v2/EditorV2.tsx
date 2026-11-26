@@ -133,6 +133,7 @@ import { installScriptPreviewListener, useScriptPreview } from './preview/script
 import { PreviewBar } from './preview/PreviewBar';
 import { codePillVisible, useCodegenEnabled } from '../../codegen/setting';
 import { isConsumerMode } from '../environment/consumerMode';
+import { applyNodeMenu, hostTakesDelete, type EditorV2HostHooks } from './hostHooks';
 // BottomDrawer import removed — bottom property drawer disabled (duplicates right Properties panel)
 // ElementPropertiesDrawer import removed — bottom drawer disabled (see BottomDrawer removal)
 
@@ -384,6 +385,8 @@ export interface EditorV2Props {
     hasViewpoint?: boolean;
     /** Handler invoked when the user clicks the segmented mode toggle. */
     onEditorModeChange?: (mode: 'flow' | 'classic' | 'split') => void;
+    /** Optional hooks of a host tab (node menu, delete, palette, layout, duplicate); see hostHooks.ts. Absent: every path is the default. */
+    hostHooks?: EditorV2HostHooks;
 }
 
 /**
@@ -482,7 +485,7 @@ function CodegenSlot({ modelid, isMetamodel }: { modelid: string; isMetamodel: b
  * Inner editor component that uses React Flow hooks.
  * Must be wrapped in ReactFlowProvider.
  */
-function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasViewpoint, onEditorModeChange }: EditorV2Props) {
+function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasViewpoint, onEditorModeChange, hostHooks }: EditorV2Props) {
     // Phase 3: React Flow state — initialised from demo data when standalone,
     // or populated by useJjomSync when modelid is provided.
     const [nodes, setNodes, onNodesChange] = useNodesState(modelid ? [] : initialNodes);
@@ -2724,6 +2727,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
     // Delete selected nodes and edges
     const deleteSelected = useCallback(() => {
         const selectedNodes = getNodes().filter((n) => n.selected);
+        if (hostTakesDelete(hostHooks, selectedNodes.map((n) => n.id))) return;
         // A selected object-as-edge is an M1 object, not an edge: it leaves with its object.
         const objectAsEdges = getEdges().filter((e) => e.selected && e.id.startsWith('irobj_'));
         const selectedEdges = getEdges().filter((e) => e.selected && !e.id.startsWith('irobj_'));
@@ -2777,11 +2781,12 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
                 )
             ));
         }
-    }, [getNodes, getEdges, setNodes, setEdges, takeSnapshot, applyDistribution, isJjomMode, handleClassRemoval, deleteObjectAsEdge]);
+    }, [getNodes, getEdges, setNodes, setEdges, takeSnapshot, applyDistribution, isJjomMode, handleClassRemoval, deleteObjectAsEdge, hostHooks]);
 
     // Delete specific node by ID
     const deleteNode = useCallback(
         (nodeId: string) => {
+            if (hostTakesDelete(hostHooks, [nodeId])) return;
             // Route classNode deletions through co-evolution in JjOM mode
             if (isJjomMode) {
                 const node = getNodes().find(n => n.id === nodeId);
@@ -2798,7 +2803,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
             // Phase 3: sync to JjOM
             if (isJjomMode) syncDeleteVertex(nodeId);
         },
-        [setNodes, setEdges, getNodes, takeSnapshot, applyDistribution, isJjomMode, handleClassRemoval]
+        [setNodes, setEdges, getNodes, takeSnapshot, applyDistribution, isJjomMode, handleClassRemoval, hostHooks]
     );
 
     // Delete specific edge by ID
@@ -3054,7 +3059,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
 
             if (isMod && event.key === 'c') {
                 event.preventDefault();
-                copySelected();
+                if (!hostHooks?.disableDuplicate) copySelected();
                 return;
             }
 
@@ -3066,7 +3071,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
 
             if (isMod && event.key === 'v') {
                 event.preventDefault();
-                pasteClipboard();
+                if (!hostHooks?.disableDuplicate) pasteClipboard();
                 return;
             }
 
@@ -3076,7 +3081,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
                 return;
             }
         },
-        [deleteSelected, handleUndo, handleRedo, copySelected, cutSelected, pasteClipboard, selectAll]
+        [deleteSelected, handleUndo, handleRedo, copySelected, cutSelected, pasteClipboard, selectAll, hostHooks]
     );
 
     // Wrap alignment actions with snapshot for undo support
@@ -3686,7 +3691,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
                 }
             }
 
-            return items;
+            return applyNodeMenu(hostHooks, contextMenu.nodeId!, items);
         }
 
         // Edge context menu
@@ -3934,7 +3939,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
         const currentEdges = getEdges();
         if (currentNodes.length === 0) return;
 
-        if (opts?.full) {
+        if (opts?.full && !hostHooks?.layout) {
             const state: any = store.getState();
             const lookup = state?.idlookup ?? {};
             const vpState: Record<string, unknown> = (typeof state?.viewpoint === 'string' && lookup[state.viewpoint]?._state) || {};
@@ -4082,7 +4087,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
             return;
         }
 
-        const layoutedNodes = await computeElkLayout(currentNodes, currentEdges);
+        const layoutedNodes = hostHooks?.layout ? await hostHooks.layout(currentNodes, currentEdges) : await computeElkLayout(currentNodes, currentEdges);
         setNodes(layoutedNodes);
 
         // Sync all new positions to JjOM
@@ -4131,7 +4136,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
             return applyDistribution(recomputed);
         });
         requestAnimationFrame(() => fitView({ padding: fitPadding(), maxZoom: 1, duration: 300 }));
-    }, [getNodes, getEdges, setNodes, setEdges, fitView, applyDistribution, modelid]);
+    }, [getNodes, getEdges, setNodes, setEdges, fitView, applyDistribution, modelid, hostHooks]);
     autoLayoutRef.current = handleAutoLayout;
     // The toolbar's button runs the full layout; the first open and the re-layout keep autoLayoutRef's (P-2026-10-01-2215).
     const handleToolbarAutoLayout = useCallback(() => handleAutoLayout({ full: true }), [handleAutoLayout]);
@@ -5010,6 +5015,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
                 <ConformanceProblemSync modelid={modelid} graphId={graphId} />
                 <SimCheckProblemSync modelid={modelid} graphId={graphId} />
                 <ValidationFreshnessSync modelid={modelid} />
+                {!hostHooks?.hidePalette && (
                 <PalettePanel
                     editorMode={modeInfo.mode}
                     rootableClasses={irPalette.classes}
@@ -5020,13 +5026,14 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
                     onItemActivate={onPaletteActivate}
                     collapsed={!!scriptPreview?.owner}
                 />
+                )}
                 <div className="editor-v2__main">
                     <Toolbar
                         snapEnabled={snapEnabled}
                         onToggleSnap={handleToggleSnap}
                         onFitView={handleFitView}
                         onAutoLayout={handleToolbarAutoLayout}
-                        onDuplicateSelected={duplicateSelected}
+                        onDuplicateSelected={hostHooks?.disableDuplicate ? undefined : duplicateSelected}
                         onDeleteSelected={deleteSelected}
                         onUndo={handleUndo}
                         onRedo={handleRedo}
@@ -5168,7 +5175,7 @@ function EditorV2Inner({ modelid, onSwitchEditor, classicSlot, editorMode, hasVi
  * Editor V2 - Metamodel Editor based on React Flow.
  * Supports Package, Class, Enumeration nodes and Reference edges.
  */
-function EditorV2({ modelid, onSwitchEditor, classicSlot, editorMode, hasViewpoint, onEditorModeChange }: EditorV2Props) {
+function EditorV2({ modelid, onSwitchEditor, classicSlot, editorMode, hasViewpoint, onEditorModeChange, hostHooks }: EditorV2Props) {
     return (
         <ReactFlowProvider>
             <EditorV2Inner
@@ -5178,6 +5185,7 @@ function EditorV2({ modelid, onSwitchEditor, classicSlot, editorMode, hasViewpoi
                 editorMode={editorMode}
                 hasViewpoint={hasViewpoint}
                 onEditorModeChange={onEditorModeChange}
+                hostHooks={hostHooks}
             />
         </ReactFlowProvider>
     );
