@@ -2,13 +2,14 @@
  * NFR-3.1 two-level regression smoke (thesis plan, Task 12). New offline project -> metamodel
  * Person { name: EString, age: EInt } through the L-API -> model with one Person, age = 42, through
  * createInstance -> ProjectsApi.save -> reload -> reopen -> canonical dump, compared with the dump before the save.
- * Expected: `SUMMARY pass=1 fail=1`; the one FAIL is the negative control (P12), which expects age = 43.
+ * Expected: `CONTROL ok` for the negative control (P12, the same assertion with age = 43) and
+ *   `SUMMARY pass=1 fail=0 controls_ok=1 controls_broken=0`, exit 0.
  * DUMP_OUT (optional): file to write the dump after the reload to.
  * Run from frontend/: PROBE_URL=http://localhost:3072 MLM_BROWSER=msedge
  *   node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/smoke/mlm/twoLevelSmoke.ts
  */
 import { writeFileSync } from 'node:fs';
-import { launch, createProject, openProject, dumpModel, check, summary, URL } from './lib.ts';
+import { launch, createProject, openProject, dumpModel, check, control, summary, URL } from './lib.ts';
 
 const { browser, page } = await launch();
 let code = 1;
@@ -84,7 +85,7 @@ try {
     check('NFR-3.1 dump after save+reload equals dump before save, with Person age 42 and the metamodel attribute age: EInt',
         after === before && /\bage=\[42\]/.test(person) && /\| type=EInt \|/.test(ageAttr),
         after === before ? `metamodel line: ${ageAttr || 'MISSING'}` : `\nBEFORE\n${before}\nAFTER\n${after}`);
-    check('negative control (P12): expects age 43, must FAIL', /\bage=\[43\]/.test(person), person);
+    control('negative control (P12): the same assertion with age 43 must reject the dump', /\bage=\[43\]/.test(person), person);
 } catch (e) {
     check('smoke ran to the end', false, String(e));
 } finally {

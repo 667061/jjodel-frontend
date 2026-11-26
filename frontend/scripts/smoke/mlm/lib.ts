@@ -123,8 +123,20 @@ export function check(label: string, ok: boolean, detail?: string): void {
     else failCount++;
 }
 
-/** Prints `SUMMARY pass=<n> fail=<n>` and returns the exit code (0 when nothing failed). */
+let controlsOk = 0;
+let controlsBroken = 0;
+
+/** Negative control (P12): `wrongAccepted` is the result of an assertion that must be false. Prints `CONTROL ok <label>`
+ *  when it is false (the wrong value was rejected), `CONTROL BROKEN <label> <detail>` when it is true. Not a check. */
+export function control(label: string, wrongAccepted: boolean, detail?: string): void {
+    console.log(`CONTROL ${wrongAccepted ? 'BROKEN' : 'ok'} ${label}${wrongAccepted && detail ? ' ' + detail : ''}`);
+    if (wrongAccepted) controlsBroken++;
+    else controlsOk++;
+}
+
+/** Prints `SUMMARY pass=<n> fail=<n> controls_ok=<n> controls_broken=<n>` and returns the exit code: 0 only when no
+ *  check failed and no control was broken. */
 export function summary(): number {
-    console.log(`SUMMARY pass=${passCount} fail=${failCount}`);
-    return failCount === 0 ? 0 : 1;
+    console.log(`SUMMARY pass=${passCount} fail=${failCount} controls_ok=${controlsOk} controls_broken=${controlsBroken}`);
+    return failCount === 0 && controlsBroken === 0 ? 0 : 1;
 }
