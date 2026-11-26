@@ -1,7 +1,12 @@
 /**
- * Optional hooks a host tab passes to the shared EditorV2 canvas (prop `hostHooks`). Without them every
- * code path of EditorV2 is the default one. Types and pure helpers only, so that this module imports in
- * node Vitest (type-only imports below).
+ * hostHooks.ts -- the optional `hostHooks` prop of EditorV2, and two helper functions its use sites call.
+ *
+ * A host tab that renders the shared EditorV2 canvas can, through this one optional prop, replace a
+ * node's context menu, take over node deletes, hide the palette, replace the automatic layout, and
+ * turn off duplicating outside the node menu. Without the prop every code path in EditorV2 is the
+ * existing one.
+ *
+ * Type-only imports, so this module (and its test) loads in node Vitest without the editor.
  */
 import type { Node, Edge } from '@xyflow/react';
 import type { ContextMenuItem } from './ContextMenu';
